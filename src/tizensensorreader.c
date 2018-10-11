@@ -1,16 +1,10 @@
+#define LOGARITHMIC_GROWTH
+
 #include "tizensensorreader.h"
 #include <sensor.h>
+#include <vector.h>
 
 #define ACCELEROMETER_INTERVAL_MS 20
-
-typedef struct appdata {
-	Evas_Object *win;
-	Evas_Object *conform;
-	Evas_Object *label;
-	Evas_Object *button;
-	Evas_Object *box;
-	Evas_Object *nf;
-} appdata_s;
 
 typedef struct sensor_event_s
 {
@@ -20,10 +14,22 @@ typedef struct sensor_event_s
     float values[MAX_VALUE_SIZE];
 };
 
+typedef struct appdata {
+	Evas_Object *win;
+	Evas_Object *conform;
+	Evas_Object *label;
+	Evas_Object *button;
+	Evas_Object *box;
+	Evas_Object *nf;
+	sensor_listener_h accelerationListener;
+	bool flag;
+	sensor_event_s *accData;
+} appdata_s;
+
 static void
 accelerometer_cb(sensor_h sensor, sensor_event_s *event, void *data){
 
-    //appdata_s * ad = (appdata_s *)data;
+    appdata_s * ad = (appdata_s *)data;
 
     /*  Some game calculations like reflections from the edge,
 	calculation of current speed and resistance of motion.
@@ -33,14 +39,18 @@ accelerometer_cb(sensor_h sensor, sensor_event_s *event, void *data){
         	(float)event->values[2]
     */
     printf("%f",event->values[0]);
+    vector_push_back(ad->accData, *event);
     dlog_print(DLOG_INFO, "USR_TAG", "%d", event->timestamp);
 }
 
-void
-clicked_cb(void *data, Evas_Object *obj, void *event_info)
-{
-    dlog_print(DLOG_INFO, "USR_TAG", "Button clicked\n");
+static int
+un_register_accelerometer_callback(appdata_s *ad){
+	int error;
+	error = sensor_listener_stop(ad->accelerationListener);
+	error = sensor_destroy_listener(ad->accelerationListener);
+	return error;
 }
+
 
 static int
 register_accelerometer_callback(appdata_s *ad)
@@ -48,7 +58,6 @@ register_accelerometer_callback(appdata_s *ad)
     int error;
     bool supported;
     sensor_h accelerometer;
-    sensor_listener_h accelerationListener;
 
     error = sensor_is_supported( SENSOR_ACCELEROMETER, &supported );
     if(error != SENSOR_ERROR_NONE && supported){
@@ -60,22 +69,43 @@ register_accelerometer_callback(appdata_s *ad)
      return error;
     }
 
-    error = sensor_create_listener( accelerometer, &accelerationListener);
+    error = sensor_create_listener( accelerometer, &ad->accelerationListener);
     if(error != SENSOR_ERROR_NONE){
      return error;
     }
 
-    error = sensor_listener_set_event_cb( accelerationListener,
+    error = sensor_listener_set_event_cb( ad->accelerationListener,
             ACCELEROMETER_INTERVAL_MS, accelerometer_cb, ad );
     if(error != SENSOR_ERROR_NONE){
      return error;
     }
 
-    error = sensor_listener_start( accelerationListener );
+    sensor_listener_set_attribute_int(ad->accelerationListener, SENSOR_ATTRIBUTE_PAUSE_POLICY, SENSOR_PAUSE_NONE);
+    error = sensor_listener_set_option(ad->accelerationListener, SENSOR_OPTION_ALWAYS_ON);
+
+    error = sensor_listener_start( ad->accelerationListener );
 
     return SENSOR_ERROR_NONE;
 }
 
+void
+clicked_cb(void *data, Evas_Object *obj, void *event_info)
+{
+	appdata_s * ad = (appdata_s *)data;
+	if(ad->flag){
+		un_register_accelerometer_callback(ad);
+		ad->flag = false;
+		elm_object_text_set(ad->button, "Start Record");
+		dlog_print(DLOG_INFO, "USR_TAG", "Unregistered\n");
+		dlog_print(DLOG_INFO, "USR_TAG", "size: %d\n", vector_size(ad->accData));
+	}else{
+		register_accelerometer_callback(ad);
+		ad->flag = true;
+		elm_object_text_set(ad->button, "Stop Record");
+		dlog_print(DLOG_INFO, "USR_TAG", "Registered\n");
+	}
+
+}
 
 static void
 win_delete_request_cb(void *data, Evas_Object *obj, void *event_info)
@@ -94,6 +124,7 @@ win_back_cb(void *data, Evas_Object *obj, void *event_info)
 static void
 create_base_gui(appdata_s *ad)
 {
+
 	/* Window */
 	/* Create and initialize elm_win.
 	   elm_win is mandatory to manipulate window. */
@@ -143,8 +174,6 @@ create_base_gui(appdata_s *ad)
 
 	/* Show window after base gui is set up */
 
-	register_accelerometer_callback(ad);
-
 	//ad->button = elm_button_add(ad->box);
 	ad->button = elm_button_add(ad->box);
 	elm_object_style_set(ad->button, "default");
@@ -169,6 +198,9 @@ app_create(void *data)
 		If this function returns true, the main loop of application starts
 		If this function returns false, the application is terminated */
 	appdata_s *ad = data;
+
+	ad->flag = false;
+	ad->accData = NULL;
 
 	create_base_gui(ad);
 
