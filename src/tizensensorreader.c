@@ -5,6 +5,8 @@
 #include <vector.h>
 
 #define ACCELEROMETER_INTERVAL_MS 20
+#define GYROSCOPE_INTERVAL_MS 20
+#define TIME_SCALE 100000000
 
 typedef struct sensor_event_s
 {
@@ -14,6 +16,12 @@ typedef struct sensor_event_s
     float values[MAX_VALUE_SIZE];
 };
 
+typedef struct sensor_signal{
+	long timestamp;
+	sensor_event_s accelerometer;
+	sensor_event_s gyroscope;
+} sensor_signal_s;
+
 typedef struct appdata {
 	Evas_Object *win;
 	Evas_Object *conform;
@@ -22,8 +30,11 @@ typedef struct appdata {
 	Evas_Object *box;
 	Evas_Object *nf;
 	sensor_listener_h accelerationListener;
+	sensor_listener_h gyroscopeListener;
 	bool flag;
 	sensor_event_s *accData;
+	sensor_event_s *gyrData;
+	sensor_signal_s *wholeData;
 } appdata_s;
 
 static void
@@ -43,11 +54,36 @@ accelerometer_cb(sensor_h sensor, sensor_event_s *event, void *data){
     dlog_print(DLOG_INFO, "USR_TAG", "%d", event->timestamp);
 }
 
+static void
+gyroscope_cb(sensor_h sensor, sensor_event_s *event, void *data){
+
+    appdata_s * ad = (appdata_s *)data;
+
+    /*  Some game calculations like reflections from the edge,
+	calculation of current speed and resistance of motion.
+        Gyroscope for each axis:
+        	(float)event->values[0]
+        	(float)event->values[1]
+        	(float)event->values[2]
+    */
+    printf("%f",event->values[0]);
+    vector_push_back(ad->gyrData, *event);
+    dlog_print(DLOG_INFO, "USR_TAG", "%d", event->timestamp);
+}
+
 static int
 un_register_accelerometer_callback(appdata_s *ad){
 	int error;
 	error = sensor_listener_stop(ad->accelerationListener);
 	error = sensor_destroy_listener(ad->accelerationListener);
+	return error;
+}
+
+static int
+un_register_gyroscope_callback(appdata_s *ad){
+	int error;
+	error = sensor_listener_stop(ad->gyroscopeListener);
+	error = sensor_destroy_listener(ad->gyroscopeListener);
 	return error;
 }
 
@@ -88,18 +124,101 @@ register_accelerometer_callback(appdata_s *ad)
     return SENSOR_ERROR_NONE;
 }
 
+static int
+register_gyroscope_callback(appdata_s *ad)
+{
+    int error;
+    bool supported;
+    sensor_h gyroscope;
+
+    error = sensor_is_supported( SENSOR_GYROSCOPE, &supported );
+    if(error != SENSOR_ERROR_NONE && supported){
+     return error;
+    }
+
+    error = sensor_get_default_sensor(SENSOR_GYROSCOPE, &gyroscope);
+    if(error != SENSOR_ERROR_NONE){
+     return error;
+    }
+
+    error = sensor_create_listener( gyroscope, &ad->gyroscopeListener);
+    if(error != SENSOR_ERROR_NONE){
+     return error;
+    }
+
+    error = sensor_listener_set_event_cb( ad->gyroscopeListener,
+            GYROSCOPE_INTERVAL_MS, gyroscope_cb, ad );
+    if(error != SENSOR_ERROR_NONE){
+     return error;
+    }
+
+    sensor_listener_set_attribute_int(ad->gyroscopeListener, SENSOR_ATTRIBUTE_PAUSE_POLICY, SENSOR_PAUSE_NONE);
+    error = sensor_listener_set_option(ad->gyroscopeListener, SENSOR_OPTION_ALWAYS_ON);
+
+    error = sensor_listener_start( ad->gyroscopeListener );
+
+    return SENSOR_ERROR_NONE;
+}
+
+static void pairSignalsByTime(void *data){
+
+	appdata_s * ad = (appdata_s *)data;
+
+	int idx1 = 0;
+	int idx2 = 0;
+
+	while(idx1 < vector_size(ad->accData) && idx2 < vector_size(ad->gyrData)){
+		sensor_event_s curItem1 = ad->accData[idx1];
+		sensor_event_s curItem2 = ad->gyrData[idx2];
+
+		unsigned long long curTime1 = curItem1.timestamp / TIME_SCALE;
+		unsigned long long curTime2 = curItem2.timestamp / TIME_SCALE;
+
+		if(abs(curTime1 - curTime2) < 0.1){
+
+			sensor_signal_s s;
+			s.timestamp = (long) (0.5 * (curItem1.timestamp + curItem2.timestamp));
+			s.accelerometer = curItem1;
+			s.gyroscope = curItem2;
+
+			vector_push_back(ad->wholeData, s);
+
+			idx1 += 1;
+			idx2 += 1;
+		}else if(curTime1 - curTime2 >= 0.1){
+			idx2 +=1;
+		}else{
+			idx1 +=1;
+		}
+	}
+
+	dlog_print(DLOG_INFO, "USR_TAG", "whole_size: %d\n", vector_size(ad->wholeData));
+}
+
+
 void
 clicked_cb(void *data, Evas_Object *obj, void *event_info)
 {
 	appdata_s * ad = (appdata_s *)data;
 	if(ad->flag){
 		un_register_accelerometer_callback(ad);
+		un_register_gyroscope_callback(ad);
 		ad->flag = false;
 		elm_object_text_set(ad->button, "Start Record");
 		dlog_print(DLOG_INFO, "USR_TAG", "Unregistered\n");
-		dlog_print(DLOG_INFO, "USR_TAG", "size: %d\n", vector_size(ad->accData));
+		dlog_print(DLOG_INFO, "USR_TAG", "t: %llu\n", ad->accData->timestamp);
+		dlog_print(DLOG_INFO, "USR_TAG", "acc_size: %d\n", vector_size(ad->accData));
+		dlog_print(DLOG_INFO, "USR_TAG", "gyr_size: %d\n", vector_size(ad->gyrData));
+		pairSignalsByTime(ad);
+		vector_free(ad->accData);
+		vector_free(ad->gyrData);
+		vector_free(ad->wholeData);
+		ad->accData = NULL;
+		ad->gyrData = NULL;
+		ad->wholeData = NULL;
 	}else{
 		register_accelerometer_callback(ad);
+		register_gyroscope_callback(ad);
 		ad->flag = true;
 		elm_object_text_set(ad->button, "Stop Record");
 		dlog_print(DLOG_INFO, "USR_TAG", "Registered\n");
@@ -201,6 +320,8 @@ app_create(void *data)
 
 	ad->flag = false;
 	ad->accData = NULL;
+	ad->gyrData = NULL;
+	ad->wholeData = NULL;
 
 	create_base_gui(ad);
 
