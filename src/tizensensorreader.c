@@ -3,6 +3,7 @@
 #include "tizensensorreader.h"
 #include <sensor.h>
 #include <vector.h>
+#include <storage.h>
 
 #define ACCELEROMETER_INTERVAL_MS 20
 #define GYROSCOPE_INTERVAL_MS 20
@@ -17,7 +18,7 @@ typedef struct sensor_event_s
 };
 
 typedef struct sensor_signal{
-	long timestamp;
+	unsigned long long timestamp;
 	sensor_event_s accelerometer;
 	sensor_event_s gyroscope;
 } sensor_signal_s;
@@ -160,6 +161,37 @@ register_gyroscope_callback(appdata_s *ad)
     return SENSOR_ERROR_NONE;
 }
 
+static void exportToCSVFile(void *data){
+
+	appdata_s * ad = (appdata_s *)data;
+
+	FILE *fp;
+	char *directory = "/opt/usr/apps/github.stem.tizensensorreader/data/data.csv";
+	dlog_print(DLOG_INFO, "USR_TAG", "%s", directory);
+	fp=fopen(directory,"w");
+
+	if (!fp){
+		dlog_print(DLOG_INFO, "USR_TAG", "Can't open");
+	}
+	else{
+		dlog_print(DLOG_INFO, "USR_TAG", "Can open");
+	}
+	if(ad->wholeData) {
+		sensor_signal_s * it;
+		int i = 0;
+		for(it = vector_begin(ad->wholeData); it != vector_end(ad->wholeData); ++it) {
+			sensor_event_s acc = it->accelerometer;
+			sensor_event_s gyr = it->gyroscope;
+			unsigned long long timestamp = it->timestamp;
+			fprintf(fp,"{'Gyroscope':[%f,%f,%f], 'Accelerometer':[%f,%f,%f],'Time': %llu}\n", gyr.values[0], gyr.values[1],gyr.values[2], acc.values[0],acc.values[1],acc.values[2], timestamp);
+			++i;
+		}
+	}
+	dlog_print(DLOG_INFO, "USR_TAG", "%s", "writtent");
+	fclose(fp);
+	dlog_print(DLOG_INFO, "USR_TAG", "%s", "closed");
+}
+
 static void pairSignalsByTime(void *data){
 
 	appdata_s * ad = (appdata_s *)data;
@@ -177,7 +209,7 @@ static void pairSignalsByTime(void *data){
 		if(abs(curTime1 - curTime2) < 0.1){
 
 			sensor_signal_s s;
-			s.timestamp = (long) (0.5 * (curItem1.timestamp + curItem2.timestamp));
+			s.timestamp = (unsigned long long) (0.5 * (curItem1.timestamp + curItem2.timestamp));
 			s.accelerometer = curItem1;
 			s.gyroscope = curItem2;
 
@@ -210,12 +242,20 @@ clicked_cb(void *data, Evas_Object *obj, void *event_info)
 		dlog_print(DLOG_INFO, "USR_TAG", "acc_size: %d\n", vector_size(ad->accData));
 		dlog_print(DLOG_INFO, "USR_TAG", "gyr_size: %d\n", vector_size(ad->gyrData));
 		pairSignalsByTime(ad);
-		vector_free(ad->accData);
-		vector_free(ad->gyrData);
+		exportToCSVFile(ad);
+		dlog_print(DLOG_INFO, "USR_TAG", "%s", "free all by 1");
 		vector_free(ad->wholeData);
+		dlog_print(DLOG_INFO, "USR_TAG", "%s", "free acc");
+		vector_free(ad->accData);
+		dlog_print(DLOG_INFO, "USR_TAG", "%s", "free gyr");
+		vector_free(ad->gyrData);
+		dlog_print(DLOG_INFO, "USR_TAG", "%s", "free done");
+		dlog_print(DLOG_INFO, "USR_TAG", "%s", "all");
 		ad->accData = NULL;
 		ad->gyrData = NULL;
 		ad->wholeData = NULL;
+
+
 	}else{
 		register_accelerometer_callback(ad);
 		register_gyroscope_callback(ad);
