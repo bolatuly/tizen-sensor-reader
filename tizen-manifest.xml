@@ -2,8 +2,8 @@
 <manifest xmlns="http://tizen.org/ns/packages" api-version="2.3.2" package="github.stem.tizensensorreader" version="1.0.0">
     <profile name="wearable"/>
     <ui-application appid="github.stem.tizensensorreader" exec="tizensensorreader" multiple="false" nodisplay="false" taskmanage="true" type="capp">
-        <label>tizensensorreader</label>
-        <icon>tizensensorreader.png</icon>
+        <label>Sensor Reader</label>
+        <icon>user.png</icon>
     </ui-application>
     <privileges>
         <privilege>http://tizen.org/privilege/account.read</privilege>

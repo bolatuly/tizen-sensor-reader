@@ -36,40 +36,19 @@ typedef struct appdata {
 	sensor_event_s *accData;
 	sensor_event_s *gyrData;
 	sensor_signal_s *wholeData;
+	int record_id;
 } appdata_s;
 
 static void
 accelerometer_cb(sensor_h sensor, sensor_event_s *event, void *data){
-
     appdata_s * ad = (appdata_s *)data;
-
-    /*  Some game calculations like reflections from the edge,
-	calculation of current speed and resistance of motion.
-        Acceleration for each axis:
-        	(float)event->values[0]
-        	(float)event->values[1]
-        	(float)event->values[2]
-    */
-    printf("%f",event->values[0]);
     vector_push_back(ad->accData, *event);
-    dlog_print(DLOG_INFO, "USR_TAG", "%d", event->timestamp);
 }
 
 static void
 gyroscope_cb(sensor_h sensor, sensor_event_s *event, void *data){
-
     appdata_s * ad = (appdata_s *)data;
-
-    /*  Some game calculations like reflections from the edge,
-	calculation of current speed and resistance of motion.
-        Gyroscope for each axis:
-        	(float)event->values[0]
-        	(float)event->values[1]
-        	(float)event->values[2]
-    */
-    printf("%f",event->values[0]);
     vector_push_back(ad->gyrData, *event);
-    dlog_print(DLOG_INFO, "USR_TAG", "%d", event->timestamp);
 }
 
 static int
@@ -164,18 +143,26 @@ register_gyroscope_callback(appdata_s *ad)
 static void exportToCSVFile(void *data){
 
 	appdata_s * ad = (appdata_s *)data;
+	char directory[1000] = "";
 
 	FILE *fp;
-	char *directory = "/opt/usr/apps/github.stem.tizensensorreader/data/data.csv";
+
+	ad->record_id++;
+
+	char s[11];
+	sprintf(s,"%d", ad->record_id);
+
+	strcat(directory, "/opt/usr/apps/github.stem.tizensensorreader/data/data_");
+	strcat(directory, s);
+	strcat(directory,".csv");
+
 	dlog_print(DLOG_INFO, "USR_TAG", "%s", directory);
 	fp=fopen(directory,"w");
 
 	if (!fp){
 		dlog_print(DLOG_INFO, "USR_TAG", "Can't open");
 	}
-	else{
-		dlog_print(DLOG_INFO, "USR_TAG", "Can open");
-	}
+
 	if(ad->wholeData) {
 		sensor_signal_s * it;
 		int i = 0;
@@ -187,9 +174,7 @@ static void exportToCSVFile(void *data){
 			++i;
 		}
 	}
-	dlog_print(DLOG_INFO, "USR_TAG", "%s", "writtent");
 	fclose(fp);
-	dlog_print(DLOG_INFO, "USR_TAG", "%s", "closed");
 }
 
 static void pairSignalsByTime(void *data){
@@ -223,8 +208,6 @@ static void pairSignalsByTime(void *data){
 			idx1 +=1;
 		}
 	}
-
-	dlog_print(DLOG_INFO, "USR_TAG", "whole_size: %d\n", vector_size(ad->wholeData));
 }
 
 
@@ -233,37 +216,39 @@ clicked_cb(void *data, Evas_Object *obj, void *event_info)
 {
 	appdata_s * ad = (appdata_s *)data;
 	if(ad->flag){
+
+		elm_object_text_set(ad->label, "<align=center>Saving...</align>");
+
 		un_register_accelerometer_callback(ad);
 		un_register_gyroscope_callback(ad);
+
 		ad->flag = false;
 		elm_object_text_set(ad->button, "Start Record");
-		dlog_print(DLOG_INFO, "USR_TAG", "Unregistered\n");
-		dlog_print(DLOG_INFO, "USR_TAG", "t: %llu\n", ad->accData->timestamp);
-		dlog_print(DLOG_INFO, "USR_TAG", "acc_size: %d\n", vector_size(ad->accData));
-		dlog_print(DLOG_INFO, "USR_TAG", "gyr_size: %d\n", vector_size(ad->gyrData));
+
 		pairSignalsByTime(ad);
 		exportToCSVFile(ad);
-		dlog_print(DLOG_INFO, "USR_TAG", "%s", "free all by 1");
+
 		vector_free(ad->wholeData);
-		dlog_print(DLOG_INFO, "USR_TAG", "%s", "free acc");
 		vector_free(ad->accData);
-		dlog_print(DLOG_INFO, "USR_TAG", "%s", "free gyr");
 		vector_free(ad->gyrData);
-		dlog_print(DLOG_INFO, "USR_TAG", "%s", "free done");
-		dlog_print(DLOG_INFO, "USR_TAG", "%s", "all");
 		ad->accData = NULL;
 		ad->gyrData = NULL;
 		ad->wholeData = NULL;
 
-
+		char s[11];
+		char out[1000];
+		sprintf(s,"%ld", ad->record_id);
+		strcat(out, "<align=center>Saved.ID:");
+		strcat(out, s);
+		strcat(out,"</align>");
+		elm_object_text_set(ad->label, out);
 	}else{
 		register_accelerometer_callback(ad);
 		register_gyroscope_callback(ad);
 		ad->flag = true;
 		elm_object_text_set(ad->button, "Stop Record");
-		dlog_print(DLOG_INFO, "USR_TAG", "Registered\n");
+		elm_object_text_set(ad->label, "<align=center>Recording...</align>");
 	}
-
 }
 
 static void
@@ -323,17 +308,13 @@ create_base_gui(appdata_s *ad)
 	/* Label */
 	/* Create an actual view of the base gui.
 	   Modify this part to change the view. */
-	//ad->label = elm_label_add(ad->conform);
 	ad->label = elm_label_add(ad->box);
-	elm_object_text_set(ad->label, "<align=center>Data size: 0</align>");
-	//evas_object_size_hint_weight_set(ad->label, EVAS_HINT_EXPAND, EVAS_HINT_EXPAND);
-	//elm_object_content_set(ad->conform, ad->label);
+	elm_object_text_set(ad->label, "<align=center>Press start</align>");
 	elm_box_pack_end(ad->box, ad->label);
 	evas_object_show(ad->label);
 
 	/* Show window after base gui is set up */
 
-	//ad->button = elm_button_add(ad->box);
 	ad->button = elm_button_add(ad->box);
 	elm_object_style_set(ad->button, "default");
 	elm_object_text_set(ad->button, "Start Record");
@@ -362,6 +343,7 @@ app_create(void *data)
 	ad->accData = NULL;
 	ad->gyrData = NULL;
 	ad->wholeData = NULL;
+	ad->record_id = 0;
 
 	create_base_gui(ad);
 
